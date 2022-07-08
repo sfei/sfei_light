@@ -21,7 +21,7 @@ based on a conversion developed from site-specific USGS cruise data
 Fit of near-surface (4 m and shallower) - matching to USGS sites spec'ed
 in the file Match_Cruise_to_HFsite_for_ssc2kd_and_gamtrends.xlsx ("...\TWDR_Method_fy21")
 """
-
+import warnings
 import pandas as pd
 import numpy as np
 import os
@@ -462,7 +462,13 @@ for site_i,site in enumerate(sites):
         cruiseset[iA,j] = cruise[n].ssc_mgL[iB] # array of cruise SSC data
         cruiseset_kd[iA,j] = cruise[n].Kd[iB] # array of cruise Kd data
         j = j+1
-    cruise_ssc = np.nanmean(cruiseset,axis=1) # collapse cruise_ssc data into site-averages
+
+    with warnings.catch_warnings():
+        # could probably reformulate to avoid this.  but nobody likes warnings, and
+        # this one is harmless.
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        cruise_ssc = np.nanmean(cruiseset,axis=1) # collapse cruise_ssc data into site-averages
+    
     iCruise = ~np.isnan(cruise_ssc) # where there is cruise data
     cruise_filled = np.interp(date2num(cruiseset_ts),date2num(cruiseset_ts[iCruise]),cruise_ssc[iCruise]) # interpolate time-series of cruise data
     CruiseSet_SSC = pd.Series(cruise_filled).rolling(window=lfwin,center=True).mean().to_numpy() # smooth it in time - THIS IS THE LONG-TERM TREND forcing data
@@ -768,7 +774,7 @@ for site_i,site in enumerate(sites):
 
     output['flag'] = np.where(df.ssc_mgL.isnull(),2,1) # 1: observed, 2: predicted
 
-    output['kd'] = coef*df.ssc_mgL**exp # best available 
+    output['kd'] = coef*output['ssc_mgL']**exp # best available 
     output['pred_kd'] = coef*(df.pred_ssc_mgL**exp) # strictly GAM predictions. ==df.pred_kd
     
     out = pd.DataFrame.from_dict(output)
@@ -776,6 +782,9 @@ for site_i,site in enumerate(sites):
     sel=(out.ts_pst>=OutputStart)&(out.ts_pst<=OutputEnd)
     out=out[sel]
     assert np.all(out.ssc_mgL.notnull()),"Expected the trimmed output to be all valid"
+    assert np.all(out.kd.notnull()),"Expected the trimmed output to be all valid"
+    assert np.all(out.pred_kd.notnull()),"Expected the trimmed output to be all valid"
+    
     out.to_csv(os.path.join(dir_output,site+'_SSCandKd_Filled_'+str(OutputStart)[:4]+'_to_'+str(OutputEnd)[:4]+'.csv'),index=False)
     
     ############################################################################

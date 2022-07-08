@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-This script is derived from the steps in RHStep4_Create_DELWAQ_Input_kd_vFineGrid,
+This script is derived from the steps in Step4_Create_DELWAQ_Input_kd_vFineGrid,
 but streamlines the calculation to yield predicted Kd at a finite number of stations
 for specific times.
 
@@ -19,10 +19,11 @@ at all points, for a short period of time)
 # then copy to "...\TWDR_Method_fy21\Data_DELWAQ_InputFiles"
 
 import matplotlib.pyplot as plt
-from stompy.model.delft import dfm_grid
+#from stompy.model.delft import dfm_grid
 import pandas as pd
 from stompy.spatial import wkb2shp
 from stompy import utils
+from stompy.grid import unstructured_grid
 from shapely import geometry
 import numpy as np
 import pickle
@@ -44,6 +45,8 @@ SmoothIterations = 50 # nearest-neighbor averagin iterations to smooth polygon t
 dir_input = '../Data_Kd_Shifted_RH'
 file_input = os.path.join(dir_input,version+'_LongTermHourly.nc')
 
+dir_dwaq="../Data_DELWAQ_Inputfiles_RH"
+
 dir_output = '../Figures_ErrorPostExtrap' 
 #file_output = os.path.join(dir_output,version+'_forDELWAQ_' + pd.to_datetime(start).strftime('%Y%m%d')+'_to_'+pd.to_datetime(end).strftime('%Y%m%d')+'.nc')
 
@@ -59,7 +62,7 @@ ds = xr.open_dataset(file_input)
 ds['time']=('time',),ds.time.values.astype(np.datetime64)
 
 # Load Del-waq grid 
-g=dfm_grid.DFMGrid(file_grid,cleanup=True)
+g=unstructured_grid.UnstructuredGrid.read_dfm(file_grid,cleanup=True)
 cc=g.cells_centroid() # the xy locations we are aiming for
 
 
@@ -93,7 +96,18 @@ for c in range(g.Ncells()):
 Dcsr=D.tocsr() # puts in csr format for easier calculations. compressed sparse row 
 
 #%%
+ds_full=xr.open_dataset(os.path.join(dir_dwaq,'Kd_PropShift_forDELWAQ_20091001_to_20181001.nc'))
+ds_full['time']=('time',),ds_full.time.values.astype(np.datetime64) # stored as string
 
+g_full=unstructured_grid.UnstructuredGrid.read_ugrid(ds_full) # prob. same as g
+
+def timeseries_at_xy_rendered(sample_xy):
+    """
+    To verify the full process a bit, go all the way to the full grid, full time period
+    output
+    """
+    c=g_full.select_cells_nearest(sample_xy)
+    return ds_full.isel(nFlowElem=c)
 
 def timeseries_at_xy(sample_xy):
     c=g.select_cells_nearest(sample_xy)
@@ -123,6 +137,9 @@ def timeseries_at_xy(sample_xy):
         weights[i]=f_smooth[c]
     
     assert np.allclose(weights.sum(),1.0)    
+
+    #print("Weights: ")
+    #print(weights)
     
     pred_timeseries=(ds.light_ext_coef.values * weights[None,:]).sum(axis=1)
     result_ds=xr.Dataset()
@@ -133,6 +150,7 @@ def timeseries_at_xy(sample_xy):
 sample_xy=[558312., 4171395.]
 
 result=timeseries_at_xy(sample_xy)
+result_render=timeseries_at_xy_rendered(sample_xy)
 
 #%% 
 # This can then be compared agains a cruise, mooring, etc.
@@ -159,6 +177,7 @@ for site in cruise.sites:
     ll=usgs_sfbay.station_number_to_lonlat(site)
     xy=ll2utm(ll)
     prd=timeseries_at_xy(xy)
+    prd2=timeseries_at_xy_rendered(xy)
     obs=xr.Dataset()
     obs['time']=('time',),cruise[site].ts_pst
     obs['Kd']=('time',),cruise[site].Kd
@@ -169,11 +188,18 @@ for site in cruise.sites:
               obs.time.values[-1])
     
     prd=prd.isel(time=(prd.time.values>=t_min) & (prd.time.values<=t_max))
+    prd2=prd2.isel(time=(prd2.time.values>=t_min) & (prd2.time.values<=t_max))
     obs=obs.isel(time=(obs.time.values>=t_min) & (obs.time.values<=t_max))
-    
+
     if len(prd.time)==0 or len(obs.time)==0:
         print(f"Site {site}: not enough overlap")
         continue
+    
+    # Quick check while we're here to make sure the rendered data are valid,
+    # look similar to the point data. they will be a bit different b/c we
+    # tossed some precision in the rendered data (in order to get a nice
+    # compression ratio)
+    assert np.allclose(prd['Kd'],prd2['Kd'],rtol=1e-4,atol=1e-4),"Trouble with point vs rendered data"
     
     for data in [prd, obs]:
         data['z_photo']=4./data['Kd']
@@ -196,7 +222,7 @@ for site in cruise.sites:
                      f"Pred. std: {np.std(pval[valid]):.2f}m",
                      f"R$^2$: {np.corrcoef(oval[valid],pval[valid])[0,1]**2:.3f}"]
     txt="\n".join(instant_metrics)
-    print(txt)
+    # print(txt)
     
     fig=plt.figure(site)
     fig.clf()

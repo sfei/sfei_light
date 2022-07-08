@@ -41,7 +41,7 @@ for n in range(len(stations)):
     sta = stations[n]
     
     if (sta!='Golden_Gate_Bridge') & (sta!='Ocean'): # there is no input data for these sites
-        data = pd.read_csv(os.path.join(dir_data,sta+'_Kd_Hourly_LongTerm.csv'))
+        data = pd.read_csv(os.path.join(dir_data,sta+'_Kd_Hourly_LongTerm.csv')) # already has a lot of nan...
     
         if n==0: # if we are just getting started, pre-allocate the output array
             

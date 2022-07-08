@@ -29,6 +29,8 @@ from shapely import geometry
 import numpy as np
 import pandas as pd
 import os
+import shutil
+import subprocess
 import xarray as xr 
 from scipy import sparse
 from scipy.sparse import linalg
@@ -58,7 +60,7 @@ file_grid = os.path.join(dir_grid,'wy2013c_waqgeom.nc')
 ds = xr.open_dataset(file_input) 
 
 # Load Del-waq grid 
-g=unstructured_grid.UnstructuredGrid.read_dfm(file_grid)
+g=unstructured_grid.UnstructuredGrid.read_dfm(file_grid,cleanup=True)
 cc=g.cells_centroid() # the xy locations we are aiming for
 
 
@@ -102,20 +104,26 @@ Dcsr=D.tocsr() # puts in csr format for easier calculations. compressed sparse r
 
 days = ds.time.values# Days of data 
 #days = pd.to_datetime(ds.time.values).to_numpy() # Days of data 
-
-periods=[
-    (np.datetime64('2017-08-01 00:00:00'),
-     np.datetime64('2018-10-01 00:00:00'))
-]
-
 time_dt64=ds.time.values.astype(np.datetime64)
 
+wys=[2011,2012,2013,2014,2015,2016,2017,2018]
+
+#periods=[
+#    (np.datetime64('2017-08-01 00:00:00'),
+#     np.datetime64('2018-10-01 00:00:00'))
+#]
+periods=[ (np.datetime64(datetime(wy-1,8,1)),
+           np.datetime64(datetime(wy,10,1)))
+          for wy in wys]
+
+# And the full available dataset in one file
+periods.append( (time_dt64[0].astype(datetime),
+                 time_dt64[-1].astype(datetime) ) )
+
 for start,end in periods:
-    index1 = np.where(pd.to_datetime(ds.time.values).to_numpy() == start)[0][0] # start time
-    index2 = np.where(pd.to_datetime(ds.time.values).to_numpy() == end)[0][0] # end time
-    # WIP use faster, cleaner index lookup
-    assert index1==np.searchsorted(time_dt64,start)
-    assert index2==np.searchsorted(time_dt64,end)
+    print("---- PERIOD: ",start,end," ----")
+    index1=np.searchsorted(time_dt64,start)
+    index2=np.searchsorted(time_dt64,end)
 
     file_output = os.path.join(dir_output,version+'_forDELWAQ_'
                                + pd.to_datetime(start).strftime('%Y%m%d')
@@ -126,7 +134,7 @@ for start,end in periods:
     #%% Generate a netcdf file for DELWAQ input
     # set up the netcdf with a copy of the grid.
     # roughly match DWAQ nomenclature
-    out_ds=g.write_to_xarray(face_dimension='nFlowElem',edge_dimension='nNetLink',node_dimension='nNetNode')
+    out_ds=g.write_xarray(face_dimension='nFlowElem',edge_dimension='nNetLink',node_dimension='nNetNode')
     # existing code leaves times as strings. Don't rock the boat..
     out_ds['time']=('time',),days[index1:index2+1]
     # boat provide a cf-standard timestamp, too.
@@ -137,8 +145,13 @@ for start,end in periods:
     del out_ds # clean up, safe to re-open with netCDF4 for incremental write.
 
     nc=netCDF4.Dataset(file_output,'a')
-    # could save on space with 'f4'
-    kd_var=nc.createVariable("Kd","f8",("time","nFlowElem"))
+    # could save on space with 'f4'. In theory could use least_significant digit
+    # and zlib=True. At least with defult chunking that incurred a 50x slowdown,
+    # even with complevel dialed down to 1.
+    # for Kd values in units of 1/m, no need for more than 4 digits
+    # complevel=4 appears to be much slower.
+    kd_var=nc.createVariable("Kd","f8",("time","nFlowElem"),
+                             zlib=False,complevel=1,least_significant_digit=4)
 
     for day_i,day in enumerate(utils.progress(days[index1:index2+1])): 
 
@@ -186,7 +199,23 @@ for start,end in periods:
         plot_result(2,'Polygon fill smooth',f_smooth) # plot un-smoothing result
 
     nc.close()
-    
+
+    # Attempt to compress with nccopy. This is much faster than compressing on the fly
+    # since it can efficiently use the chunking.
+    if 1:
+        print("Compressing output")
+        comp_file=file_output.replace('.nc','-comp.nc')
+        result=subprocess.run(["nccopy","-d","2",file_output,comp_file])
+        if result.returncode==0:
+            orig_mb=os.stat(file_output).st_size/2**20
+            comp_mb=os.stat(comp_file).st_size/2**20
+            print("Compression: %.3f MB to %.3f MB"%(orig_mb,comp_mb))
+            os.unlink(file_output)
+            shutil.move(comp_file,file_output)
+        else:
+            print("Failed to compress output")
+            print(result)
+
     #cells = np.linspace(0,N-1,N).astype(int)
     #dataout = xr.DataArray(data=f_smooth_agg, coords=[days[index1:index2+1],cells], 
     #                       dims=['time', 'nFlowElem'],attrs={'unit':'m-1',

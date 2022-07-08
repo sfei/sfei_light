@@ -1,0 +1,25 @@
+LinearGAM                                                                                                 
+=============================================== ==========================================================
+Distribution:                        NormalDist Effective DoF:                                    150.6933
+Link Function:                     IdentityLink Log Likelihood:                              -6435059.7941
+Number of Samples:                       913936 AIC:                                         12870422.9748
+                                                AICc:                                        12870423.0255
+                                                GCV:                                                0.0555
+                                                Scale:                                              0.0555
+                                                Pseudo R-Squared:                                   0.5347
+==========================================================================================================
+Feature Function                  Lambda               Rank         EDoF         P > x        Sig. Code   
+================================= ==================== ============ ============ ============ ============
+s(0)                              [0.6]                128          125.4        1.11e-16     ***         
+s(1)                              [0.6]                20           11.6         1.11e-16     ***         
+s(2)                              [0.6]                20           13.7         1.11e-16     ***         
+intercept                                              1            0.0          1.11e-16     ***         
+==========================================================================================================
+Significance codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+WARNING: Fitting splines and a linear function to a feature introduces a model identifiability problem
+         which can cause p-values to appear significant when they are not.
+
+WARNING: p-values calculated in this manner behave correctly for un-penalized models or models with
+         known smoothing parameters, but when smoothing parameters have been estimated, the p-values
+         are typically lower than they should be, meaning that the tests reject the null too readily.

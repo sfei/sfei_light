@@ -28,6 +28,7 @@ from matplotlib.dates import date2num
 import pickle
 from dotmap import DotMap
 from stompy import utils
+import warnings
 
 OutputTimeStep = 1 # hours, must be at least 1 hour and no more than 24 hours
 
@@ -183,7 +184,7 @@ def plot_gam_error_post_shift(data,num=None,lowpass=None,invert=True):
     return fig
 
 for site in sites:
-    inp = pd.read_csv(os.path.join(dir_input,site+input_ext))
+    inp = pd.read_csv(os.path.join(dir_input,site+input_ext)) # This comes in with a lot of nan kd.
     
     data = DotMap()
     data.ts_pst = pd.to_datetime(inp['ts_pst']).to_numpy()
@@ -209,8 +210,11 @@ for site in sites:
         cruise_kd_set[iA,j] = cruise[n].Kd[iB] # array of cruise Kd
         j = j+1
         
-    cruise_kd = np.nanmean(cruise_kd_set,axis=1) # collapse cruise_ssc data into site-averages when time steps overlap
-    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore",category=RuntimeWarning)
+        cruise_kd = np.nanmean(cruise_kd_set,axis=1) # collapse cruise_ssc data into site-averages when time steps overlap
+    iCruise = ~np.isnan(cruise_kd) # where there is cruise data
+
     out = {}
     out['ts_pst'] = data.ts_pst
     out['Kd'] = np.round(data.kd,2)
@@ -225,7 +229,6 @@ for site in sites:
         ovm_prop = cruise_kd / kd_in # modeled/measure proportion (at times when there is cruise data)
         ovm_diff = cruise_kd - kd_in # modeled - measured difference (at times when there is cruise data)
         
-        iCruise = ~np.isnan(cruise_kd) # where there is cruise data
         ovm_prop_filled = np.interp(date2num(cruise_ts),
                                     date2num(cruise_ts[iCruise]),
                                     ovm_prop[iCruise])
@@ -308,10 +311,12 @@ for site in sites:
     fig=plot_gam_error_post_shift(data)
     if fig is not None: # may fail if no observed data
         fig.savefig(os.path.join(dir_figs,site+'_Kd_gam_shifted_error.png'),dpi=150)
+        plt.close(fig)
         
     fig=plot_gam_error_post_shift(data,lowpass=60)
     if fig is not None: # may fail if no observed data
         fig.savefig(os.path.join(dir_figs,site+'_Kd_gam_shifted_error_lp60.png'),dpi=150)
+        plt.close(fig)
 
 #%%
 
